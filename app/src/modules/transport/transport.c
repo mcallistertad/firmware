@@ -55,22 +55,22 @@ static const struct smf_state states[];
 static void connect_work_fn(struct k_work *work);
 
 static void state_running_entry(void *o);
-static enum smf_state_result state_running_run(void *o);
+static void state_running_run(void *o);
 
 static void state_disconnected_entry(void *o);
-static enum smf_state_result state_disconnected_run(void *o);
+static void state_disconnected_run(void *o);
 
 static void state_connecting_entry(void *o);
-static enum smf_state_result state_connecting_run(void *o);
+static void state_connecting_run(void *o);
 
 static void state_connected_entry(void *o);
 static void state_connected_exit(void *o);
 
 static void state_connected_ready_entry(void *o);
-static enum smf_state_result state_connected_ready_run(void *o);
+static void state_connected_ready_run(void *o);
 
 static void state_connected_paused_entry(void *o);
-static enum smf_state_result state_connected_paused_run(void *o);
+static void state_connected_paused_run(void *o);
 
 /* Defining the hierarchical transport module states:
  *
@@ -224,7 +224,6 @@ static void state_running_entry(void *o)
 			   K_THREAD_STACK_SIZEOF(stack_area),
 			   K_LOWEST_APPLICATION_THREAD_PRIO,
 			   NULL);
-	k_thread_name_set(&transport_queue.thread, "transport_workq");
 
 	err = nrf_cloud_coap_init();
 	if (err) {
@@ -235,7 +234,7 @@ static void state_running_entry(void *o)
 	}
 }
 
-static enum smf_state_result state_running_run(void *o)
+static void state_running_run(void *o)
 {
 	struct s_object *state_object = o;
 
@@ -246,11 +245,10 @@ static enum smf_state_result state_running_run(void *o)
 
 		if (nw_status == NETWORK_DISCONNECTED) {
 			STATE_SET(STATE_DISCONNECTED);
-			return SMF_EVENT_HANDLED;
+
+			return;
 		}
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
 /* Handlers for STATE_CLOUD_DISCONNECTED. */
@@ -272,7 +270,7 @@ static void state_disconnected_entry(void *o)
 	}
 }
 
-static enum smf_state_result state_disconnected_run(void *o)
+static void state_disconnected_run(void *o)
 {
 	struct s_object const *state_object = o;
 
@@ -282,14 +280,12 @@ static enum smf_state_result state_disconnected_run(void *o)
 	    (MSG_TO_NETWORK_STATUS(state_object->msg_buf) == NETWORK_CONNECTED)) {
 		STATE_SET(STATE_CONNECTING);
 
-		return SMF_EVENT_HANDLED;
+		return;
 	}
 
 	if (state_object->chan == &PAYLOAD_CHAN) {
 		LOG_WRN("Discarding payload since we are not connected to cloud");
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
 /* Handlers for STATE_CONNECTING */
@@ -303,7 +299,7 @@ static void state_connecting_entry(void *o)
 	k_work_reschedule_for_queue(&transport_queue, &connect_work, K_NO_WAIT);
 }
 
-static enum smf_state_result state_connecting_run(void *o)
+static void state_connecting_run(void *o)
 {
 	struct s_object *state_object = o;
 
@@ -315,11 +311,9 @@ static enum smf_state_result state_connecting_run(void *o)
 		if (conn_result == CLOUD_CONN_SUCCES) {
 			STATE_SET(STATE_CONNECTED);
 
-			return SMF_EVENT_HANDLED;
+			return;
 		}
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
 /* Handler for STATE_CLOUD_CONNECTED. */
@@ -371,7 +365,7 @@ static void state_connected_ready_entry(void *o)
 	}
 }
 
-static enum smf_state_result state_connected_ready_run(void *o)
+static void state_connected_ready_run(void *o)
 {
 	struct s_object *state_object = o;
 
@@ -384,7 +378,7 @@ static enum smf_state_result state_connected_ready_run(void *o)
 		if (conn_result == CLOUD_CONN_RETRY) {
 			STATE_SET(STATE_CONNECTING);
 
-			return SMF_EVENT_HANDLED;
+			return;
 		}
 	}
 
@@ -392,11 +386,13 @@ static enum smf_state_result state_connected_ready_run(void *o)
 		if (MSG_TO_NETWORK_STATUS(state_object->msg_buf) == NETWORK_DISCONNECTED) {
 			STATE_SET(STATE_CONNECTED_PAUSED);
 
-			return SMF_EVENT_HANDLED;
+			return;
 		}
 
 		if (MSG_TO_NETWORK_STATUS(state_object->msg_buf) == NETWORK_CONNECTED) {
-			return SMF_EVENT_PROPAGATE;
+			STATE_EVENT_HANDLED();
+
+			return;
 		}
 	}
 
@@ -417,14 +413,13 @@ static enum smf_state_result state_connected_ready_run(void *o)
 			if (err) {
 				LOG_ERR("zbus_chan_pub, error: %d", err);
 				SEND_FATAL_ERROR();
+				return;
 			}
 
 		} else if (err) {
 			LOG_ERR("nrf_cloud_coap_bytes_send, error: %d", err);
 		}
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
 /* Handlers for STATE_CONNECTED_PAUSED */
@@ -448,7 +443,7 @@ static void state_connected_paused_entry(void *o)
 
 }
 
-static enum smf_state_result state_connected_paused_run(void *o)
+static void state_connected_paused_run(void *o)
 {
 	struct s_object *state_object = o;
 
@@ -457,10 +452,9 @@ static enum smf_state_result state_connected_paused_run(void *o)
 	if ((state_object->chan == &NETWORK_CHAN) &&
 	    (MSG_TO_NETWORK_STATUS(state_object->msg_buf) == NETWORK_CONNECTED)) {
 		STATE_SET(STATE_CONNECTED_READY);
-		return SMF_EVENT_HANDLED;	
-	}
 
-	return SMF_EVENT_PROPAGATE;
+		return;
+	}
 }
 
 /* End of state handlers */

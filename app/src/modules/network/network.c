@@ -28,10 +28,8 @@ ZBUS_MSG_SUBSCRIBER_DEFINE(network);
 /* Observe trigger channel */
 ZBUS_CHAN_ADD_OBS(TRIGGER_CHAN, network, 0);
 ZBUS_CHAN_ADD_OBS(TIME_CHAN, network, 0);
-ZBUS_CHAN_ADD_OBS(NETWORK_CHAN, network, 0);
 
-#define MAX_MSG_SIZE (MAX(MAX(sizeof(enum trigger_type), sizeof(enum time_status)), \
-			      sizeof(enum network_status)))
+#define MAX_MSG_SIZE (MAX(sizeof(enum trigger_type), sizeof(enum time_status)))
 
 /* Macros used to subscribe to specific Zephyr NET management events. */
 #define L4_EVENT_MASK (NET_EVENT_L4_CONNECTED | NET_EVENT_L4_DISCONNECTED)
@@ -47,14 +45,11 @@ static struct net_mgmt_event_callback conn_cb;
 /* Module states.
  *
  * STATE_INIT: The module is initializing and waiting for time to be available.
- * STATE_SAMPLING: The module is ready to sample upon receiving a trigger.
- * STATE_DISCONNECTED: The module is disconnected from the network, sampling is blocked.
+ * STATE_SAMPLING: The  module is ready to sample upon receiving a trigger.
  */
 enum network_module_state {
 	STATE_INIT,
 	STATE_SAMPLING,
-	STATE_WAIT_FOR_NETWORK_DISCONNECT,
-	STATE_DISCONNECTED,
 };
 
 /* State object.
@@ -71,10 +66,8 @@ struct s_object {
 	uint8_t msg_buf[MAX_MSG_SIZE];
 };
 /* Forward declarations of state handlers */
-static enum smf_state_result state_init_run(void *o);
-static enum smf_state_result state_sampling_run(void *o);
-static void state_disconnected_entry(void *o);
-static enum smf_state_result state_wait_for_network_disconnect_run(void *o);
+static void state_init_run(void *o);
+static void state_sampling_run(void *o);
 
 static struct s_object s_obj;
 static const struct smf_state states[] = {
@@ -84,14 +77,6 @@ static const struct smf_state states[] = {
 				 NULL), /* No initial transition */
 	[STATE_SAMPLING] =
 		SMF_CREATE_STATE(NULL, state_sampling_run, NULL,
-				 NULL,
-				 NULL),
-	[STATE_WAIT_FOR_NETWORK_DISCONNECT] =
-		SMF_CREATE_STATE(NULL, state_wait_for_network_disconnect_run, NULL,
-				 NULL,
-				 NULL),
-	[STATE_DISCONNECTED] =
-		SMF_CREATE_STATE(state_disconnected_entry, NULL, NULL,
 				 NULL,
 				 NULL),
 };
@@ -109,7 +94,7 @@ static void network_status_notify(enum network_status status)
 }
 
 static void l4_event_handler(struct net_mgmt_event_callback *cb,
-			     uint64_t event,
+			     uint32_t event,
 			     struct net_if *iface)
 {
 	switch (event) {
@@ -128,7 +113,7 @@ static void l4_event_handler(struct net_mgmt_event_callback *cb,
 }
 
 static void connectivity_event_handler(struct net_mgmt_event_callback *cb,
-				       uint64_t event,
+				       uint32_t event,
 				       struct net_if *iface)
 {
 	if (event == NET_EVENT_CONN_IF_FATAL_ERROR) {
@@ -154,7 +139,7 @@ static void lte_lc_evt_handler(const struct lte_lc_evt *const evt)
 		 * to perform any action. The modem will try to re-attach to the LTE network after
 		 * the 30-minute block.
 		 */
-		if (evt->modem_evt.type == LTE_LC_MODEM_EVT_RESET_LOOP) {
+		if (evt->modem_evt == LTE_LC_MODEM_EVT_RESET_LOOP) {
 			LOG_ERR("The modem has detected a reset loop!");
 			SEND_IRRECOVERABLE_ERROR();
 		}
@@ -228,7 +213,7 @@ static void sample_network_quality(void)
 
 /* State handlers */
 
-static enum smf_state_result state_init_run(void *obj)
+static void state_init_run(void *obj)
 {
 	struct s_object const *state_object = obj;
 
@@ -239,15 +224,12 @@ static enum smf_state_result state_init_run(void *obj)
 			LOG_DBG("Time available, sampling can start");
 
 			STATE_SET(STATE_SAMPLING);
-			return SMF_EVENT_HANDLED;
 		}
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
 
-static enum smf_state_result state_sampling_run(void *obj)
+static void state_sampling_run(void *obj)
 {
 	struct s_object const *state_object = obj;
 
@@ -262,51 +244,6 @@ static enum smf_state_result state_sampling_run(void *obj)
 			}
 		}
 	}
-
-	if (&NETWORK_CHAN == state_object->chan) {
-		enum network_status status = MSG_TO_NETWORK_STATUS(state_object->msg_buf);
-
-		if (status == NETWORK_DISCONNECT_REQUEST) {
-			LOG_DBG("Network disconnect request request received");
-
-			int err = conn_mgr_all_if_disconnect(true);
-
-			if (err) {
-				LOG_ERR("conn_mgr_all_if_disconnect, error: %d", err);
-				SEND_FATAL_ERROR();
-			}
-
-			STATE_SET(STATE_WAIT_FOR_NETWORK_DISCONNECT);
-			return SMF_EVENT_HANDLED;
-		}
-	}
-
-	return SMF_EVENT_PROPAGATE;
-}
-
-static enum smf_state_result state_wait_for_network_disconnect_run(void *o)
-{
-	struct s_object *state_object = o;
-
-	if (&NETWORK_CHAN == state_object->chan) {
-		const enum network_status status = MSG_TO_NETWORK_STATUS(state_object->msg_buf);
-
-		if (status == NETWORK_DISCONNECTED) {
-			LOG_DBG("Network disconnected, sampling is blocked");
-
-			STATE_SET(STATE_DISCONNECTED);
-			return SMF_EVENT_HANDLED;
-		}
-	}
-
-	return SMF_EVENT_PROPAGATE;
-}
-
-static void state_disconnected_entry(void *obj)
-{
-	ARG_UNUSED(obj);
-
-	LOG_DBG("state_disconnected_entry");
 }
 
 static void task_wdt_callback(int channel_id, void *user_data)

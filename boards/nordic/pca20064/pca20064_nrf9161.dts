@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+/dts-v1/;
+#include <nordic/nrf9161_laca.dtsi>
+#include "pca20064_nrf9161_common.dtsi"
+
+/ {
+	chosen {
+		zephyr,sram = &sram0_s;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,wifi = &nordic_wlan0;
+	};
+};

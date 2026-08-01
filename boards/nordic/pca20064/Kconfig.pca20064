@@ -1,0 +1,5 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+config BOARD_PCA20064
+	select SOC_NRF9161_LACA

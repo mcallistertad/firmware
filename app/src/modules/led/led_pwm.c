@@ -104,14 +104,14 @@ static int pwm_out(const struct led_color *color)
 	}
 
 	/* GREEN */
-	err = pwm_set_dt(&led1, PWM_USEC(LED_MAX), PWM_USEC(color->c[1]));
+	err = pwm_set_dt(&led2, PWM_USEC(LED_MAX), PWM_USEC(color->c[1]));
 	if (err) {
 		LOG_ERR("pwm_set_dt, error:%d", err);
 		return err;
 	}
 
 	/* BLUE */
-	err = pwm_set_dt(&led2, PWM_USEC(LED_MAX), PWM_USEC(color->c[2]));
+	err = pwm_set_dt(&led1, PWM_USEC(LED_MAX), PWM_USEC(color->c[2]));
 	if (err) {
 		LOG_ERR("pwm_set_dt, error:%d", err);
 		return err;
@@ -326,7 +326,6 @@ static int led_pwm_init(void)
 			   K_THREAD_STACK_SIZEOF(stack_area),
 			   K_LOWEST_APPLICATION_THREAD_PRIO,
 			   NULL);
-	k_thread_name_set(&led_pwm_queue.thread, "led_pwm_workq");
 
 	k_work_init_delayable(&leds.work, work_handler);
 

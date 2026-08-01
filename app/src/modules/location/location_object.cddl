@@ -1,0 +1,32 @@
+; SenML-CBOR representation of the Geolocation object defined at
+; https://github.com/hello-nrfcloud/proto-map/blob/main/lwm2m/14201.xml
+; Depends on lwm2m_senml definitions.
+
+latitude = {
+	bn => tstr .size 8,                     ; Geolocation object/instance path
+	n => "0",                               ; Latitude resource ID
+	vf => float,                             ; Latitude in degrees (WGS-84)
+	bt => 1700000000...3000000000           ; UNIX timestamp in seconds
+}
+
+longitude = {
+	n => "1",                               ; Longitude resource ID
+	vf => float                              ; Longitude in degrees (WGS-84)
+}
+
+radius = {
+	n => "3",                               ; Radius resource ID
+	vf => float                              ; Accuracy radius in metres
+}
+
+location-source = {
+	n => "6",                               ; Source resource ID
+	vs => tstr                               ; GNSS, WIFI, MCELL, SCELL, or combined
+}
+
+location-object = [
+	latitude,
+	longitude,
+	radius,
+	location-source,
+]

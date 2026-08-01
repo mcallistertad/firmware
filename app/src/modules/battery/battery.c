@@ -7,7 +7,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/zbus/zbus.h>
-#include <zephyr/drivers/sensor/npm13xx_charger.h>
+#include <zephyr/drivers/mfd/npm1300.h>
+#include <zephyr/drivers/sensor/npm1300_charger.h>
 #include <zephyr/sys/util.h>
 #include <nrf_fuel_gauge.h>
 #include <date_time.h>
@@ -47,12 +48,18 @@ BUILD_ASSERT(CONFIG_APP_BATTERY_WATCHDOG_TIMEOUT_SECONDS >
 #define NPM1300_CHG_STATUS_CC_MASK BIT(3)
 /* CHARGER.BCHGCHARGESTATUS.CONSTANTVOLTAGE */
 #define NPM1300_CHG_STATUS_CV_MASK BIT(4)
+/* VBUS.VBUSINSTATUS.VBUSINPRESENT */
+#define NPM1300_VBUS_BASE 0x02U
+#define NPM1300_VBUS_STATUS_OFFSET 0x07U
+#define NPM1300_VBUS_PRESENT_MASK BIT(0)
 
 static const struct device *charger = DEVICE_DT_GET(DT_NODELABEL(npm1300_charger));
+static const struct device *pmic = DEVICE_DT_GET(DT_PARENT(DT_NODELABEL(npm1300_charger)));
 
 /* Forward declarations */
 static struct s_object s_obj;
-static int charger_read_sensors(float *voltage, float *current, float *temp, int32_t *chg_status);
+static int charger_read_sensors(float *voltage, float *current, float *temp, int32_t *chg_status,
+				bool *vbus_present);
 static void sample(int64_t *ref_time);
 
 /* State machine */
@@ -86,8 +93,8 @@ struct s_object {
 
 /* Forward declarations of state handlers */
 static void state_init_entry(void *o);
-static enum smf_state_result state_init_run(void *o);
-static enum smf_state_result state_sampling_run(void *o);
+static void state_init_run(void *o);
+static void state_sampling_run(void *o);
 
 static struct s_object s_obj;
 static const struct smf_state states[] = {
@@ -111,7 +118,14 @@ static void state_init_entry(void *o)
 		.model = &battery_model
 	};
 	int32_t chg_status;
+	bool vbus_present;
 	struct s_object *state_object = o;
+
+	if (!device_is_ready(pmic)) {
+		LOG_ERR("PMIC device not ready.");
+		SEND_FATAL_ERROR();
+		return;
+	}
 
 	if (!device_is_ready(charger)) {
 		LOG_ERR("Charger device not ready.");
@@ -119,7 +133,8 @@ static void state_init_entry(void *o)
 		return;
 	}
 
-	err = charger_read_sensors(&parameters.v0, &parameters.i0, &parameters.t0, &chg_status);
+	err = charger_read_sensors(&parameters.v0, &parameters.i0, &parameters.t0, &chg_status,
+				   &vbus_present);
 	if (err < 0) {
 		LOG_ERR("charger_read_sensors, error: %d", err);
 		SEND_FATAL_ERROR();
@@ -143,7 +158,7 @@ static void state_init_entry(void *o)
 	}
 }
 
-static enum smf_state_result state_init_run(void *o)
+static void state_init_run(void *o)
 {
 	struct s_object *state_object = o;
 
@@ -154,14 +169,11 @@ static enum smf_state_result state_init_run(void *o)
 			LOG_DBG("Time available, sampling can start");
 
 			STATE_SET(STATE_SAMPLING);
-			return SMF_EVENT_HANDLED;
 		}
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
-static enum smf_state_result state_sampling_run(void *o)
+static void state_sampling_run(void *o)
 {
 	struct s_object *state_object = o;
 
@@ -173,15 +185,15 @@ static enum smf_state_result state_sampling_run(void *o)
 			sample(&state_object->fuel_gauge_ref_time);
 		}
 	}
-
-	return SMF_EVENT_PROPAGATE;
 }
 
 /* End of state handling */
 
-static int charger_read_sensors(float *voltage, float *current, float *temp, int32_t *chg_status)
+static int charger_read_sensors(float *voltage, float *current, float *temp, int32_t *chg_status,
+				bool *vbus_present)
 {
 	struct sensor_value value;
+	uint8_t vbus_status;
 	int err;
 
 	err = sensor_sample_fetch(charger);
@@ -189,31 +201,48 @@ static int charger_read_sensors(float *voltage, float *current, float *temp, int
 		return err;
 	}
 
-	sensor_channel_get(charger, SENSOR_CHAN_GAUGE_VOLTAGE, &value);
+	err = sensor_channel_get(charger, SENSOR_CHAN_GAUGE_VOLTAGE, &value);
+	if (err < 0) {
+		return err;
+	}
 	*voltage = (float)value.val1 + ((float)value.val2 / 1000000);
 
-	sensor_channel_get(charger, SENSOR_CHAN_GAUGE_TEMP, &value);
+	err = sensor_channel_get(charger, SENSOR_CHAN_GAUGE_TEMP, &value);
+	if (err < 0) {
+		return err;
+	}
 	*temp = (float)value.val1 + ((float)value.val2 / 1000000);
 
-	sensor_channel_get(charger, SENSOR_CHAN_GAUGE_AVG_CURRENT, &value);
+	err = sensor_channel_get(charger, SENSOR_CHAN_GAUGE_AVG_CURRENT, &value);
+	if (err < 0) {
+		return err;
+	}
 	*current = (float)value.val1 + ((float)value.val2 / 1000000);
 
-	sensor_channel_get(charger, (enum sensor_channel)SENSOR_CHAN_NPM13XX_CHARGER_STATUS,
-			   &value);
+	err = sensor_channel_get(charger,
+				 (enum sensor_channel)SENSOR_CHAN_NPM1300_CHARGER_STATUS, &value);
+	if (err < 0) {
+		return err;
+	}
 	*chg_status = value.val1;
+
+	err = mfd_npm1300_reg_read(pmic, NPM1300_VBUS_BASE, NPM1300_VBUS_STATUS_OFFSET,
+				   &vbus_status);
+	if (err < 0) {
+		return err;
+	}
+
+	*vbus_present = (vbus_status & NPM1300_VBUS_PRESENT_MASK) != 0;
 
 	return 0;
 }
-
-#if defined(CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX)
-#include "memfault/metrics/platform/battery.h"
-#endif /* CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX */
 
 static void sample(int64_t *ref_time)
 {
 	int err;
 	int chg_status;
 	bool charging;
+	bool vbus_present;
 	float voltage;
 	float current;
 	float temp;
@@ -222,9 +251,6 @@ static void sample(int64_t *ref_time)
 	struct bat_object bat_object = { 0 };
 	struct payload payload = { 0 };
 	int64_t system_time;
-#if defined(CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX)
-	sMfltPlatformBatterySoc soc;
-#endif /* CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX */
 
 	err = date_time_now(&system_time);
 	if (err) {
@@ -232,26 +258,12 @@ static void sample(int64_t *ref_time)
 		return;
 	}
 
-	err = charger_read_sensors(&voltage, &current, &temp, &chg_status);
+	err = charger_read_sensors(&voltage, &current, &temp, &chg_status, &vbus_present);
 	if (err) {
 		LOG_ERR("charger_read_sensors, error: %d", err);
 		SEND_FATAL_ERROR();
 		return;
 	}
-
-#if defined(CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX)
-	err = memfault_platform_get_stateofcharge(&soc);
-	if (err) {
-		LOG_ERR("memfault_platform_get_stateofcharge, error: %d", err);
-		SEND_FATAL_ERROR();
-		return;
-	}
-
-	state_of_charge = (float)soc.soc / (float)CONFIG_MEMFAULT_METRICS_BATTERY_SOC_PCT_SCALE_VALUE;
-	charging = soc.discharging;
-
-	(void)delta;
-#else /* CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX */
 
 	delta = (float)k_uptime_delta(ref_time) / 1000.f;
 
@@ -259,8 +271,8 @@ static void sample(int64_t *ref_time)
 				  NPM1300_CHG_STATUS_CC_MASK |
 				  NPM1300_CHG_STATUS_CV_MASK)) != 0;
 
-	state_of_charge = nrf_fuel_gauge_process(voltage, current, temp, delta, NULL);
-#endif /* CONFIG_MEMFAULT_NRF_PLATFORM_BATTERY_NPM13XX */
+	state_of_charge = nrf_fuel_gauge_process(voltage, current, temp, delta, vbus_present, NULL);
+
 	LOG_DBG("State of charge: %f", (double)roundf(state_of_charge));
 	LOG_DBG("The battery is %s", charging ? "charging" : "not charging");
 

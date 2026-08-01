@@ -22,3 +22,9 @@ venv
 .vscode
 sanity-out*
 twister-out*
+
+# Local device identities and credentials must never be committed.
+/.local/
+/secrets/
+*credentials*.json
+map-*.json

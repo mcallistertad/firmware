@@ -4,9 +4,9 @@
 ##########################################################################################
 
 import os
-from utils.flash_tools import flash_device, reset_device
 import sys
 import pytest
+from utils.flash_tools import flash_device, reset_device
 
 sys.path.append(os.getcwd())
 from utils.logger import get_logger
@@ -37,6 +37,7 @@ def run_location(t91x_board, hex_file, location_method):
     patterns_location = ["Wi-Fi and cellular methods combined"] if location_method == "Wi-Fi" else []
     patterns_location = patterns_location + [
         "location_event_handler: Got location: lat:",
+        "Location payload queued",
         "Location search done"]
 
     # Cloud connection
@@ -45,7 +46,7 @@ def run_location(t91x_board, hex_file, location_method):
     t91x_board.uart.wait_for_str(patterns_cloud_connection, timeout=120)
 
     # Location
-    t91x_board.uart.wait_for_str(patterns_location, timeout=180)
+    t91x_board.uart.wait_for_str_ordered(patterns_location, timeout=180)
 
     # Extract coordinates from UART output
     values = t91x_board.uart.extract_value( \

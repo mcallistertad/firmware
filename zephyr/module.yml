@@ -10,6 +10,9 @@ build:
   # Zephyr build system. The `.` is the root of this repository.
   cmake: .
   settings:
+    # Make the out-of-tree PCA20064 target selectable with an ordinary
+    # `west build -b pca20064/nrf9161/ns` command.
+    board_root: .
     # Zephyr will use the `<dts_root>/dts` for additional dts files and
     # `<dts_root>/dts/bindings` for additional dts binding files. The `.` is
     # the root of this repository.

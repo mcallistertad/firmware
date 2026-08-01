@@ -50,7 +50,7 @@
 
 &uart1 {
 	status = "okay";
-	current-speed = <115200>;
+	current-speed = <1000000>;
 };
 
 /* Hello nRF Cloud uses the nRF7002 only for Wi-Fi location scanning. */

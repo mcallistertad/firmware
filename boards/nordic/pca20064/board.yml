@@ -1,0 +1,8 @@
+board:
+  name: pca20064
+  full_name: Thingy:91 X PCA20064 (nRF9161 prototype)
+  vendor: nordic
+  socs:
+    - name: nrf9161
+      variants:
+        - name: ns

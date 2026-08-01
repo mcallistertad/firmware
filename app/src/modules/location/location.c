@@ -15,6 +15,7 @@
 #include <date_time.h>
 
 #include "message_channel.h"
+#include "location_payload.h"
 #include "modem/lte_lc.h"
 
 #include <net/nrf_cloud.h>
@@ -41,6 +42,7 @@ ZBUS_CHAN_ADD_OBS(NETWORK_CHAN, location, 0);
 		         sizeof(enum network_status)))))))
 
 static bool gnss_enabled;
+static bool gnss_initialized;
 
 static void location_event_handler(const struct location_event_data *event_data);
 
@@ -98,22 +100,22 @@ void trigger_location_update(void)
 	}
 }
 
-void handle_network_chan(enum network_status status)
-{
-	int err;
+void handle_network_chan(enum network_status status) {
+	int err = 0;
+
+	if (gnss_initialized) {
+		return;
+	}
 
 	if (status == NETWORK_CONNECTED) {
+		/* GNSS has to be enabled after the modem is initialized and enabled */
 		err = lte_lc_func_mode_set(LTE_LC_FUNC_MODE_ACTIVATE_GNSS);
 		if (err) {
 			LOG_ERR("Unable to init GNSS: %d", err);
 			SEND_FATAL_ERROR();
-		}
-
-	} else if (status == NETWORK_DISCONNECTED) {
-		err = lte_lc_func_mode_set(LTE_LC_FUNC_MODE_DEACTIVATE_GNSS);
-		if (err) {
-			LOG_ERR("Unable to init GNSS: %d", err);
-			SEND_FATAL_ERROR();
+		} else {
+			gnss_initialized = true;
+			LOG_DBG("GNSS initialized");
 		}
 	}
 }
@@ -241,6 +243,33 @@ static void apply_gnss_time(const struct nrf_modem_gnss_pvt_data_frame *pvt_data
 	date_time_set(&gnss_time);
 }
 
+static void send_location_payload(const struct location_event_data *event_data)
+{
+	int64_t system_time;
+	struct payload payload = { 0 };
+	int err;
+
+	err = date_time_now(&system_time);
+	if (err) {
+		LOG_ERR("Failed to get location timestamp, error: %d", err);
+		return;
+	}
+
+	err = location_payload_encode(event_data, system_time, &payload);
+	if (err) {
+		LOG_ERR("Failed to encode location object, error: %d", err);
+		return;
+	}
+
+	err = zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_SECONDS(1));
+	if (err) {
+		LOG_ERR("Failed to publish location payload, error: %d", err);
+		return;
+	}
+
+	LOG_INF("Location payload queued");
+}
+
 static void location_event_handler(const struct location_event_data *event_data)
 {
 	switch (event_data->id) {
@@ -263,6 +292,8 @@ static void location_event_handler(const struct location_event_data *event_data)
 			}
 
 		}
+
+		send_location_payload(event_data);
 		status_send(LOCATION_SEARCH_DONE);
 		break;
 	case LOCATION_EVT_STARTED:

@@ -22,7 +22,6 @@ zephyr_include_directories(${ZEPHYR_BASE}/include/zephyr/)
 zephyr_include_directories(${ZEPHYR_BASE}/subsys/testsuite/include)
 zephyr_include_directories(../../../app/src/common)
 zephyr_include_directories(${NRF_DIR}/subsys/net/lib/nrf_cloud/include)
-zephyr_include_directories(${NRF_DIR}/subsys/net/lib/nrf_cloud/common/include)
 zephyr_include_directories(${NRF_DIR}/../modules/lib/cjson)
 
 target_link_options(app PRIVATE --whole-archive)
