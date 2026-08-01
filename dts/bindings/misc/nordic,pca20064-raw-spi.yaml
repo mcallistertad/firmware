@@ -1,0 +1,3 @@
+description: Raw SPI device used only by the guarded PCA20064 hardware probe
+compatible: "nordic,pca20064-raw-spi"
+include: spi-device.yaml

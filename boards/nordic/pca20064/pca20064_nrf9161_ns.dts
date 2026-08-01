@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+/dts-v1/;
+#include <nordic/nrf9161ns_laca.dtsi>
+#include "pca20064_nrf9161_common.dtsi"
+
+/ {
+	chosen {
+		zephyr,flash = &flash0;
+		zephyr,sram = &sram0_ns;
+		zephyr,code-partition = &slot0_ns_partition;
+		zephyr,wifi = &nordic_wlan0;
+	};
+};
+
+/* UART1 is reserved for TF-M logging and modem trace routing in NS builds. */
+&uart1 {
+	status = "disabled";
+};

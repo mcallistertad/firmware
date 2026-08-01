@@ -24,7 +24,7 @@
 LOG_MODULE_REGISTER(shell, CONFIG_APP_SHELL_LOG_LEVEL);
 
 static const struct device *const shell_uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
-static const struct device *const uart1_dev = DEVICE_DT_GET(DT_NODELABEL(uart1));
+static const struct device *const uart1_dev = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(uart1));
 
 static void uart_disable_handler(struct k_work *work);
 static void uart_enable_handler(struct k_work *work);

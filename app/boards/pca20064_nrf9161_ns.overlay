@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+&bme680 {
+	status = "okay";
+};
+
+&pmic_main {
+	status = "okay";
+};
+
+&gpios_pmic {
+	status = "okay";
+};
+
+&npm1300_regulators {
+	status = "okay";
+};
+
+&npm1300_charger {
+	status = "okay";
+};
+
+&ldsw_npm6001_en {
+	/delete-property/ regulator-boot-off;
+	regulator-boot-on;
+};
+
+&pmic_wifi {
+	status = "okay";
+
+	regulators {
+		status = "okay";
+	};
+};
+
+/ {
+	aliases {
+		gas-sensor = &bme680;
+	};
+
+	chosen {
+		zephyr,wifi = &nordic_wlan0;
+	};
+};
+
+/* Hello nRF Cloud uses the nRF7002 only for Wi-Fi location scanning. */
+&nrf70 {
+	compatible = "nordic,nrf7000-spi";
+	status = "okay";
+};

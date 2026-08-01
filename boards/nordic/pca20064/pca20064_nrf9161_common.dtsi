@@ -1,0 +1,7 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+#include "pca20064_nrf9161_common-pinctrl.dtsi"
+#include "pca20064_common.dtsi"

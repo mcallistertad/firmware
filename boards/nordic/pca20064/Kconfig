@@ -1,0 +1,10 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+if BOARD_PCA20064_NRF9161 || BOARD_PCA20064_NRF9161_NS
+
+module = BOARD
+module-str = PCA20064 board
+source "subsys/logging/Kconfig.template.log_config"
+
+endif

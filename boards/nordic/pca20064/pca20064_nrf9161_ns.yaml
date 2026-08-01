@@ -1,0 +1,13 @@
+identifier: pca20064/nrf9161/ns
+name: Thingy91X-PCA20064-nRF9161-Non-Secure
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 128
+flash: 800
+supported:
+  - gpio
+  - i2c
+  - spi

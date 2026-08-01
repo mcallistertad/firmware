@@ -1,0 +1,104 @@
+# Thingy:91 X PCA20064 nRF9161 board configuration
+# Copyright (c) 2026
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+if BOARD_PCA20064_NRF9161 || BOARD_PCA20064_NRF9161_NS
+
+config BUILD_WITH_TFM
+	default y if BOARD_PCA20064_NRF9161_NS
+
+if BUILD_WITH_TFM
+
+config TFM_FLASH_MERGED_BINARY
+	bool
+	default y
+
+# Match the factory Thingy:91 X secure/non-secure SRAM split.
+config PM_PARTITION_SIZE_TFM_SRAM
+	hex
+	default 0xa000
+
+endif # BUILD_WITH_TFM
+
+DT_CHOSEN_Z_CODE_PARTITION := zephyr,code-partition
+
+config FLASH_LOAD_SIZE
+	default $(dt_chosen_reg_size_hex,$(DT_CHOSEN_Z_CODE_PARTITION))
+	depends on BOARD_PCA20064_NRF9161 && TRUSTED_EXECUTION_SECURE
+
+if BOARD_PCA20064_NRF9161_NS
+
+config FLASH_LOAD_OFFSET
+	default $(dt_chosen_reg_addr_hex,$(DT_CHOSEN_Z_CODE_PARTITION))
+
+config FLASH_LOAD_SIZE
+	default $(dt_chosen_reg_size_hex,$(DT_CHOSEN_Z_CODE_PARTITION))
+
+endif # BOARD_PCA20064_NRF9161_NS
+
+config BT_HCI_VS
+	default y if BT
+
+config HW_STACK_PROTECTION
+	default ARCH_HAS_STACK_PROTECTION
+
+if !IS_BOOTLOADER_IMG
+
+config SECURE_BOOT
+	default y
+
+config BOOTLOADER_MCUBOOT
+	default y
+
+config I2C
+	default y
+
+config MODEM_ANTENNA
+	depends on NRF_MODEM_LIB
+	default y
+
+if MODEM_ANTENNA
+
+config MODEM_ANTENNA_AT_MAGPIO
+	default ""
+
+config MODEM_ANTENNA_AT_COEX0
+	default ""
+
+config MODEM_ANTENNA_AT_MIPIRFFEDEV
+	default "AT%XMIPIRFFEDEV=1,4,71,198,248"
+
+config MODEM_ANTENNA_AT_MIPIRFFECTRL_INIT
+	default "AT%XMIPIRFFECTRL=1,0,2,28,248,0,130"
+
+config MODEM_ANTENNA_AT_MIPIRFFECTRL_ON
+	default ""
+
+config MODEM_ANTENNA_AT_MIPIRFFECTRL_OFF
+	default ""
+
+config MODEM_ANTENNA_AT_MIPIRFFECTRL_PWROFF
+	default "AT%XMIPIRFFECTRL=1,3,2,28,184,0,0"
+
+endif # MODEM_ANTENNA
+
+endif # !IS_BOOTLOADER_IMG
+
+if IS_BOOTLOADER_IMG
+
+config I2C
+	default n
+
+# Do not force SPI NOR into every bootloader image. In particular, B0 must
+# remain independent of the external SPI flash. MCUboot enables the required
+# SPI and SPI NOR drivers through conf/mcuboot-pca20064.conf.
+
+config GPIO_HOGS
+	default n
+
+config GPIO_NPM1300
+	default n
+
+endif # IS_BOOTLOADER_IMG
+
+endif # BOARD_PCA20064_NRF9161 || BOARD_PCA20064_NRF9161_NS

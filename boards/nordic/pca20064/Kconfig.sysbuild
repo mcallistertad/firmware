@@ -1,0 +1,24 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+if BOARD_PCA20064_NRF9161 || BOARD_PCA20064_NRF9161_NS
+
+choice BOOTLOADER
+	default BOOTLOADER_MCUBOOT
+endchoice
+
+config SECURE_BOOT_APPCORE
+	default y
+
+config PM_EXTERNAL_FLASH_MCUBOOT_SECONDARY
+	default y if BOOTLOADER_MCUBOOT
+
+config PM_OVERRIDE_EXTERNAL_DRIVER_CHECK
+	default y if BOOTLOADER_MCUBOOT
+
+# Use the same NSIB example signing key as Nordic's NCS v2.9.0 Thingy:91 X
+# factory-layout build. A complete recovery image contains B0 and signed S0.
+config SECURE_BOOT_SIGNING_KEY_FILE
+	default "$(ZEPHYR_NRF_MODULE_DIR)/boards/nordic/thingy91x/nsib_signing_key.pem"
+
+endif
