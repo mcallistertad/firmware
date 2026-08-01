@@ -80,6 +80,13 @@ void test_invalid_arguments_and_timestamp_are_rejected(void)
 			      device_info_payload_encode(&invalid, TEST_TIMESTAMP_MS, &payload));
 
 	TEST_ASSERT_EQUAL_INT(-ERANGE, device_info_payload_encode(&values, -1000, &payload));
+	TEST_ASSERT_EQUAL_INT(-ERANGE, device_info_payload_encode(&values, -1, &payload));
+	TEST_ASSERT_EQUAL_INT(
+		-ERANGE,
+		device_info_payload_encode(&values, INT64_C(1699999999999), &payload));
+	TEST_ASSERT_EQUAL_INT(
+		-ERANGE,
+		device_info_payload_encode(&values, INT64_C(3000000001000), &payload));
 }
 
 extern int unity_main(void);

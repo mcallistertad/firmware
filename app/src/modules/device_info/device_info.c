@@ -18,9 +18,11 @@
 
 LOG_MODULE_REGISTER(device_info, CONFIG_APP_DEVICE_INFO_LOG_LEVEL);
 
+static bool queued;
+static bool published;
+
 int device_info_publish(void)
 {
-	static bool published;
 	char imei[MODEM_INFO_MAX_RESPONSE_SIZE] = {0};
 	char iccid[MODEM_INFO_MAX_RESPONSE_SIZE] = {0};
 	char modem_firmware[MODEM_INFO_FWVER_SIZE] = {0};
@@ -36,7 +38,7 @@ int device_info_publish(void)
 	int64_t timestamp_ms;
 	int err;
 
-	if (published) {
+	if (published || queued) {
 		return 0;
 	}
 
@@ -64,14 +66,31 @@ int device_info_publish(void)
 	if (err) {
 		return err;
 	}
+	payload.object_id = DEVICE_INFO_OBJECT_ID;
 
 	err = zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_SECONDS(1));
 	if (err) {
 		return err;
 	}
 
-	published = true;
+	queued = true;
 	LOG_INF("Device information payload queued");
 
 	return 0;
+}
+
+void device_info_delivery_status(int err)
+{
+	if (!queued) {
+		return;
+	}
+
+	queued = false;
+	if (err) {
+		LOG_WRN("Device information delivery failed: %d", err);
+		return;
+	}
+
+	published = true;
+	LOG_INF("Device information published");
 }

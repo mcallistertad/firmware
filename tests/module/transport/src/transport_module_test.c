@@ -11,6 +11,8 @@
 
 DEFINE_FFF_GLOBALS;
 
+#define TEST_OBJECT_ID 14204
+
 FAKE_VALUE_FUNC(int, task_wdt_feed, int);
 FAKE_VALUE_FUNC(int, task_wdt_add, uint32_t, task_wdt_callback_t, void *);
 FAKE_VALUE_FUNC(int, nrf_cloud_client_id_get, char *, size_t);
@@ -24,7 +26,9 @@ static K_SEM_DEFINE(cloud_disconnected, 0, 1);
 static K_SEM_DEFINE(cloud_connected_ready, 0, 1);
 static K_SEM_DEFINE(cloud_connected_paused, 0, 1);
 static K_SEM_DEFINE(data_sent, 0, 1);
+static K_SEM_DEFINE(payload_status_received, 0, 1);
 static K_SEM_DEFINE(fatal_error_received, 0, 1);
+static struct payload_status last_payload_status;
 
 static void dummy_cb(const struct zbus_channel *chan)
 {
@@ -57,6 +61,14 @@ static void error_cb(const struct zbus_channel *chan)
 	}
 }
 
+static void payload_status_cb(const struct zbus_channel *chan)
+{
+	if (chan == &PAYLOAD_STATUS_CHAN) {
+		last_payload_status = *(const struct payload_status *)chan->message;
+		k_sem_give(&payload_status_received);
+	}
+}
+
 /* Define unused subscribers */
 ZBUS_SUBSCRIBER_DEFINE(app, 1);
 ZBUS_SUBSCRIBER_DEFINE(battery, 1);
@@ -67,6 +79,7 @@ ZBUS_SUBSCRIBER_DEFINE(location, 1);
 ZBUS_LISTENER_DEFINE(trigger, dummy_cb);
 ZBUS_LISTENER_DEFINE(cloud, cloud_chan_cb);
 ZBUS_LISTENER_DEFINE(error, error_cb);
+ZBUS_LISTENER_DEFINE(payload_status, payload_status_cb);
 
 void setUp(void)
 {
@@ -85,6 +98,7 @@ void setUp(void)
 
 	zbus_chan_add_obs(&CLOUD_CHAN, &cloud, K_NO_WAIT);
 	zbus_chan_add_obs(&ERROR_CHAN, &error, K_NO_WAIT);
+	zbus_chan_add_obs(&PAYLOAD_STATUS_CHAN, &payload_status, K_NO_WAIT);
 }
 
 void test_initial_transition_to_disconnected(void)
@@ -111,7 +125,9 @@ void test_sending_payload(void)
 	struct payload payload = {
 		.buffer = "test",
 		.buffer_len = sizeof(payload.buffer) - 1,
+		.object_id = TEST_OBJECT_ID,
 	};
+	int err;
 
 	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
 
@@ -122,6 +138,11 @@ void test_sending_payload(void)
 	TEST_ASSERT_EQUAL(0, strncmp(nrf_cloud_coap_bytes_send_fake.arg0_val,
 				     payload.buffer, payload.buffer_len));
 	TEST_ASSERT_EQUAL(payload.buffer_len, nrf_cloud_coap_bytes_send_fake.arg1_val);
+
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(0, last_payload_status.err);
 }
 
 void test_connected_ready_to_paused(void)

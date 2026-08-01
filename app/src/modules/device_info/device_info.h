@@ -11,8 +11,13 @@
 extern "C" {
 #endif
 
+#define DEVICE_INFO_OBJECT_ID 14204
+
 /** Publish the hello.nrfcloud.com Device Information (14204) object. */
 int device_info_publish(void);
+
+/** Record whether the queued Device Information payload reached the cloud. */
+void device_info_delivery_status(int err);
 
 #ifdef __cplusplus
 }

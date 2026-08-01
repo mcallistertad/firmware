@@ -12,6 +12,8 @@
 #include "device_info_payload.h"
 
 #define DEVICE_INFO_INSTANCE "14204/0/"
+#define DEVICE_INFO_TIMESTAMP_MIN_S INT64_C(1700000000)
+#define DEVICE_INFO_TIMESTAMP_MAX_S INT64_C(3000000000)
 
 static bool string_is_valid(const char *value)
 {
@@ -37,8 +39,13 @@ int device_info_payload_encode(const struct device_info_values *values, int64_t 
 		return -EINVAL;
 	}
 
+	if (timestamp_ms < 0) {
+		return -ERANGE;
+	}
+
 	timestamp_s = timestamp_ms / 1000;
-	if (timestamp_s < 0 || timestamp_s > UINT32_MAX) {
+	if (timestamp_s < DEVICE_INFO_TIMESTAMP_MIN_S ||
+	    timestamp_s > DEVICE_INFO_TIMESTAMP_MAX_S) {
 		return -ERANGE;
 	}
 

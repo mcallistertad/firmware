@@ -32,7 +32,7 @@ def run_location(t91x_board, hex_file, location_method):
     patterns_cloud_connection = [
         "Network connectivity established",
         "Connected to Cloud",
-        "Device information payload queued"
+        "Device information published"
     ]
 
     patterns_location = ["Wi-Fi and cellular methods combined"] if location_method == "Wi-Fi" else []

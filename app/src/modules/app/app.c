@@ -29,8 +29,10 @@ ZBUS_MSG_SUBSCRIBER_DEFINE(app);
 /* Observe channels */
 ZBUS_CHAN_ADD_OBS(TRIGGER_CHAN, app, 0);
 ZBUS_CHAN_ADD_OBS(CLOUD_CHAN, app, 0);
+ZBUS_CHAN_ADD_OBS(PAYLOAD_STATUS_CHAN, app, 0);
 
-#define MAX_MSG_SIZE (MAX(sizeof(enum trigger_type), sizeof(enum cloud_status)))
+#define MAX_MSG_SIZE                                                                            \
+	(MAX(sizeof(struct payload_status), MAX(sizeof(enum trigger_type), sizeof(enum cloud_status))))
 
 BUILD_ASSERT(CONFIG_APP_MODULE_WATCHDOG_TIMEOUT_SECONDS > CONFIG_APP_MODULE_EXEC_TIME_SECONDS_MAX,
 	     "Watchdog timeout must be greater than maximum execution time");
@@ -259,6 +261,14 @@ static void app_task(void)
 				if (err) {
 					LOG_WRN("Failed to publish device information: %d", err);
 				}
+			}
+		}
+
+		if (&PAYLOAD_STATUS_CHAN == chan) {
+			const struct payload_status *status = MSG_TO_PAYLOAD_STATUS(msg_buf);
+
+			if (status->object_id == DEVICE_INFO_OBJECT_ID) {
+				device_info_delivery_status(status->err);
 			}
 		}
 	}

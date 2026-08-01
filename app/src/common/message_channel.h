@@ -48,9 +48,17 @@ extern "C" {
 struct payload {
 	uint8_t buffer[CONFIG_APP_PAYLOAD_CHANNEL_BUFFER_MAX_SIZE];
 	size_t buffer_len;
+	uint16_t object_id;
 };
 
 #define MSG_TO_PAYLOAD(_msg) ((struct payload *)_msg)
+
+struct payload_status {
+	uint16_t object_id;
+	int err;
+};
+
+#define MSG_TO_PAYLOAD_STATUS(_msg) ((const struct payload_status *)_msg)
 
 enum network_status {
 	NETWORK_DISCONNECTED = 0x1,
@@ -145,6 +153,7 @@ ZBUS_CHAN_DECLARE(
 	LED_CHAN,
 	NETWORK_CHAN,
 	PAYLOAD_CHAN,
+	PAYLOAD_STATUS_CHAN,
 	TIME_CHAN,
 	TRIGGER_CHAN,
 	TRIGGER_MODE_CHAN,

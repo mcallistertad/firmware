@@ -203,6 +203,24 @@ static void connect_work_cancel(void)
 	k_work_cancel_delayable(&connect_work);
 }
 
+static void payload_status_publish(const struct payload *payload, int delivery_err)
+{
+	struct payload_status status = {
+		.object_id = payload->object_id,
+		.err = delivery_err,
+	};
+	int err;
+
+	if (payload->object_id == 0) {
+		return;
+	}
+
+	err = zbus_chan_pub(&PAYLOAD_STATUS_CHAN, &status, K_SECONDS(1));
+	if (err) {
+		LOG_ERR("Failed to publish payload status: %d", err);
+	}
+}
+
 /* Zephyr State Machine Framework handlers */
 
 /* Handler for STATE_RUNNING */
@@ -284,7 +302,10 @@ static void state_disconnected_run(void *o)
 	}
 
 	if (state_object->chan == &PAYLOAD_CHAN) {
+		struct payload *payload = MSG_TO_PAYLOAD(state_object->msg_buf);
+
 		LOG_WRN("Discarding payload since we are not connected to cloud");
+		payload_status_publish(payload, -ENOTCONN);
 	}
 }
 
@@ -400,9 +421,11 @@ static void state_connected_ready_run(void *o)
 		int err;
 		struct payload *payload = MSG_TO_PAYLOAD(state_object->msg_buf);
 
-		LOG_HEXDUMP_DBG(payload->buffer, MIN(payload->buffer_len, 32), "Payload");
+		LOG_DBG("Sending payload for object %u (%zu bytes)", payload->object_id,
+			payload->buffer_len);
 
 		err = nrf_cloud_coap_bytes_send(payload->buffer, payload->buffer_len, false);
+		payload_status_publish(payload, err);
 		if (err == -EACCES) {
 
 			/* Not connected, retry connection */
@@ -454,6 +477,13 @@ static void state_connected_paused_run(void *o)
 		STATE_SET(STATE_CONNECTED_READY);
 
 		return;
+	}
+
+	if (state_object->chan == &PAYLOAD_CHAN) {
+		struct payload *payload = MSG_TO_PAYLOAD(state_object->msg_buf);
+
+		LOG_WRN("Discarding payload while the cloud connection is paused");
+		payload_status_publish(payload, -ENETDOWN);
 	}
 }
 
