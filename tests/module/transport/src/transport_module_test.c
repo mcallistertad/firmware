@@ -6,6 +6,7 @@
 #include <unity.h>
 
 #include <zephyr/fff.h>
+#include "cloud_send.h"
 #include "message_channel.h"
 #include <zephyr/task_wdt/task_wdt.h>
 
@@ -19,8 +20,7 @@ FAKE_VALUE_FUNC(int, nrf_cloud_client_id_get, char *, size_t);
 FAKE_VALUE_FUNC(int, nrf_cloud_coap_init);
 FAKE_VALUE_FUNC(int, nrf_cloud_coap_connect, const char * const);
 FAKE_VALUE_FUNC(int, nrf_cloud_coap_disconnect);
-FAKE_VALUE_FUNC(int, nrf_cloud_coap_shadow_device_status_update);
-FAKE_VALUE_FUNC(int, nrf_cloud_coap_bytes_send, uint8_t *, size_t, bool);
+FAKE_VALUE_FUNC(int, transport_cloud_bytes_send, uint8_t *, size_t, bool);
 
 static K_SEM_DEFINE(cloud_disconnected, 0, 1);
 static K_SEM_DEFINE(cloud_connected_ready, 0, 1);
@@ -88,7 +88,8 @@ void setUp(void)
 	/* Reset fakes */
 	RESET_FAKE(task_wdt_feed);
 	RESET_FAKE(task_wdt_add);
-	RESET_FAKE(nrf_cloud_coap_bytes_send);
+	RESET_FAKE(nrf_cloud_coap_connect);
+	RESET_FAKE(transport_cloud_bytes_send);
 	k_sem_reset(&payload_status_received);
 
 	/* Clear all channels */
@@ -147,11 +148,11 @@ void test_sending_payload(void)
 	/* Transport module needs CPU to run state machine */
 	k_sleep(K_MSEC(100));
 
-	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_bytes_send_fake.call_count);
-	TEST_ASSERT_EQUAL(0, strncmp(nrf_cloud_coap_bytes_send_fake.arg0_val,
+	TEST_ASSERT_EQUAL(1, transport_cloud_bytes_send_fake.call_count);
+	TEST_ASSERT_EQUAL(0, strncmp(transport_cloud_bytes_send_fake.arg0_val,
 				     payload.buffer, payload.buffer_len));
-	TEST_ASSERT_EQUAL(payload.buffer_len, nrf_cloud_coap_bytes_send_fake.arg1_val);
-	TEST_ASSERT_TRUE(nrf_cloud_coap_bytes_send_fake.arg2_val);
+	TEST_ASSERT_EQUAL(payload.buffer_len, transport_cloud_bytes_send_fake.arg1_val);
+	TEST_ASSERT_TRUE(transport_cloud_bytes_send_fake.arg2_val);
 
 	err = k_sem_take(&payload_status_received, K_SECONDS(1));
 	TEST_ASSERT_EQUAL(0, err);
@@ -168,13 +169,60 @@ void test_send_failure_reports_payload_status(void)
 	};
 	int err;
 
-	nrf_cloud_coap_bytes_send_fake.return_val = -EIO;
+	RESET_FAKE(nrf_cloud_coap_connect);
+	transport_cloud_bytes_send_fake.return_val = -EIO;
 	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
 
 	err = k_sem_take(&payload_status_received, K_SECONDS(1));
 	TEST_ASSERT_EQUAL(0, err);
 	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
 	TEST_ASSERT_EQUAL(-EIO, last_payload_status.err);
+
+	err = k_sem_take(&cloud_connected_ready, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_connect_fake.call_count);
+}
+
+void test_callback_failure_reports_payload_status(void)
+{
+	struct payload payload = {
+		.buffer = "callback failed",
+		.buffer_len = sizeof("callback failed") - 1,
+		.object_id = TEST_OBJECT_ID,
+	};
+	int err;
+
+	RESET_FAKE(nrf_cloud_coap_connect);
+	transport_cloud_bytes_send_fake.return_val = -ETIMEDOUT;
+	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
+
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(-ETIMEDOUT, last_payload_status.err);
+
+	err = k_sem_take(&cloud_connected_ready, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_connect_fake.call_count);
+}
+
+void test_server_rejection_reports_payload_status(void)
+{
+	struct payload payload = {
+		.buffer = "rejected",
+		.buffer_len = sizeof("rejected") - 1,
+		.object_id = TEST_OBJECT_ID,
+	};
+	int err;
+
+	transport_cloud_bytes_send_fake.return_val = 128;
+	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
+
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(128, last_payload_status.err);
+	TEST_ASSERT_EQUAL(0, nrf_cloud_coap_connect_fake.call_count);
 }
 
 void test_connected_ready_to_paused(void)
@@ -212,7 +260,7 @@ void test_connected_paused_to_ready_send_payload(void)
 	};
 
 	/* Reset call count */
-	nrf_cloud_coap_bytes_send_fake.call_count = 0;
+	transport_cloud_bytes_send_fake.call_count = 0;
 
 	zbus_chan_pub(&NETWORK_CHAN, &status, K_NO_WAIT);
 
@@ -227,11 +275,34 @@ void test_connected_paused_to_ready_send_payload(void)
 	/* Transport module needs CPU to run state machine */
 	k_sleep(K_MSEC(100));
 
-	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_bytes_send_fake.call_count);
-	TEST_ASSERT_EQUAL(0, strncmp(nrf_cloud_coap_bytes_send_fake.arg0_val,
+	TEST_ASSERT_EQUAL(1, transport_cloud_bytes_send_fake.call_count);
+	TEST_ASSERT_EQUAL(0, strncmp(transport_cloud_bytes_send_fake.arg0_val,
 				     payload.buffer, payload.buffer_len));
-	TEST_ASSERT_EQUAL(payload.buffer_len, nrf_cloud_coap_bytes_send_fake.arg1_val);
-	TEST_ASSERT_FALSE(nrf_cloud_coap_bytes_send_fake.arg2_val);
+	TEST_ASSERT_EQUAL(payload.buffer_len, transport_cloud_bytes_send_fake.arg1_val);
+	TEST_ASSERT_FALSE(transport_cloud_bytes_send_fake.arg2_val);
+}
+
+void test_unauthorized_response_reports_status_and_reconnects(void)
+{
+	struct payload payload = {
+		.buffer = "unauthorized",
+		.buffer_len = sizeof("unauthorized") - 1,
+		.object_id = TEST_OBJECT_ID,
+	};
+	int err;
+
+	RESET_FAKE(nrf_cloud_coap_connect);
+	transport_cloud_bytes_send_fake.return_val = -EACCES;
+	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
+
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(-EACCES, last_payload_status.err);
+
+	err = k_sem_take(&cloud_connected_ready, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_connect_fake.call_count);
 }
 
 /* This is required to be added to each test. That is because unity's

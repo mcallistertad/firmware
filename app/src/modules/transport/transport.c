@@ -13,6 +13,7 @@
 #include <net/nrf_cloud_coap.h>
 #include <app_version.h>
 
+#include "cloud_send.h"
 #include "modules_common.h"
 #include "message_channel.h"
 
@@ -33,11 +34,26 @@ ZBUS_CHAN_ADD_OBS(NETWORK_CHAN, transport, 0);
 
 #define MAX_MSG_SIZE (MAX(sizeof(struct payload), sizeof(enum network_status)))
 
+static bool send_error_requires_reconnect(int err)
+{
+	switch (err) {
+	case -EACCES:
+	case -ECONNRESET:
+	case -ESHUTDOWN:
+	case -ETIMEDOUT:
+	case -EIO:
+	case -EPROTO:
+		return true;
+	default:
+		return false;
+	}
+}
+
 /* Enumerator to be used in privat transport channel */
 enum priv_transport_evt {
 	IRRECOVERABLE_ERROR,
 	CLOUD_CONN_SUCCES,
-	CLOUD_CONN_RETRY,	/* Unused for now */
+	CLOUD_CONN_RETRY,
 };
 
 /* Create private transport channel for internal messaging */
@@ -431,12 +447,12 @@ static void state_connected_ready_run(void *o)
 		LOG_DBG("Sending payload for object %u (%zu bytes)", payload->object_id,
 			payload->buffer_len);
 
-		err = nrf_cloud_coap_bytes_send(payload->buffer, payload->buffer_len,
-					    payload->object_id != 0);
+		err = transport_cloud_bytes_send(payload->buffer, payload->buffer_len,
+						 payload->object_id != 0);
 		payload_status_publish(payload, err);
-		if (err == -EACCES) {
+		if (send_error_requires_reconnect(err)) {
 
-			/* Not connected, retry connection */
+			/* The connection is not usable; establish a fresh cloud session. */
 
 			enum priv_transport_evt conn_result = CLOUD_CONN_RETRY;
 
