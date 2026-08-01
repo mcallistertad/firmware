@@ -335,6 +335,13 @@ static void state_connecting_run(void *o)
 			return;
 		}
 	}
+
+	if (state_object->chan == &PAYLOAD_CHAN) {
+		struct payload *payload = MSG_TO_PAYLOAD(state_object->msg_buf);
+
+		LOG_WRN("Discarding payload while connecting to cloud");
+		payload_status_publish(payload, -ENOTCONN);
+	}
 }
 
 /* Handler for STATE_CLOUD_CONNECTED. */
@@ -424,7 +431,8 @@ static void state_connected_ready_run(void *o)
 		LOG_DBG("Sending payload for object %u (%zu bytes)", payload->object_id,
 			payload->buffer_len);
 
-		err = nrf_cloud_coap_bytes_send(payload->buffer, payload->buffer_len, false);
+		err = nrf_cloud_coap_bytes_send(payload->buffer, payload->buffer_len,
+					    payload->object_id != 0);
 		payload_status_publish(payload, err);
 		if (err == -EACCES) {
 

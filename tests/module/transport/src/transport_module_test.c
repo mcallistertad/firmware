@@ -88,6 +88,8 @@ void setUp(void)
 	/* Reset fakes */
 	RESET_FAKE(task_wdt_feed);
 	RESET_FAKE(task_wdt_add);
+	RESET_FAKE(nrf_cloud_coap_bytes_send);
+	k_sem_reset(&payload_status_received);
 
 	/* Clear all channels */
 	zbus_sub_wait(&location, &chan, K_NO_WAIT);
@@ -103,10 +105,21 @@ void setUp(void)
 
 void test_initial_transition_to_disconnected(void)
 {
+	struct payload payload = {
+		.buffer = "not connected",
+		.buffer_len = sizeof("not connected") - 1,
+		.object_id = TEST_OBJECT_ID,
+	};
 	int err;
 
 	err = k_sem_take(&cloud_disconnected, K_SECONDS(1));
 	TEST_ASSERT_EQUAL(0, err);
+
+	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(-ENOTCONN, last_payload_status.err);
 }
 
 void test_transition_disconnected_connected_ready(void)
@@ -138,6 +151,7 @@ void test_sending_payload(void)
 	TEST_ASSERT_EQUAL(0, strncmp(nrf_cloud_coap_bytes_send_fake.arg0_val,
 				     payload.buffer, payload.buffer_len));
 	TEST_ASSERT_EQUAL(payload.buffer_len, nrf_cloud_coap_bytes_send_fake.arg1_val);
+	TEST_ASSERT_TRUE(nrf_cloud_coap_bytes_send_fake.arg2_val);
 
 	err = k_sem_take(&payload_status_received, K_SECONDS(1));
 	TEST_ASSERT_EQUAL(0, err);
@@ -145,8 +159,31 @@ void test_sending_payload(void)
 	TEST_ASSERT_EQUAL(0, last_payload_status.err);
 }
 
+void test_send_failure_reports_payload_status(void)
+{
+	struct payload payload = {
+		.buffer = "failed send",
+		.buffer_len = sizeof("failed send") - 1,
+		.object_id = TEST_OBJECT_ID,
+	};
+	int err;
+
+	nrf_cloud_coap_bytes_send_fake.return_val = -EIO;
+	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
+
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(-EIO, last_payload_status.err);
+}
+
 void test_connected_ready_to_paused(void)
 {
+	struct payload payload = {
+		.buffer = "paused",
+		.buffer_len = sizeof("paused") - 1,
+		.object_id = TEST_OBJECT_ID,
+	};
 	int err;
 	enum network_status status = NETWORK_DISCONNECTED;
 
@@ -157,6 +194,12 @@ void test_connected_ready_to_paused(void)
 
 	err = k_sem_take(&cloud_connected_paused, K_SECONDS(1));
 	TEST_ASSERT_EQUAL(0, err);
+
+	zbus_chan_pub(&PAYLOAD_CHAN, &payload, K_NO_WAIT);
+	err = k_sem_take(&payload_status_received, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(TEST_OBJECT_ID, last_payload_status.object_id);
+	TEST_ASSERT_EQUAL(-ENETDOWN, last_payload_status.err);
 }
 
 void test_connected_paused_to_ready_send_payload(void)
@@ -188,6 +231,7 @@ void test_connected_paused_to_ready_send_payload(void)
 	TEST_ASSERT_EQUAL(0, strncmp(nrf_cloud_coap_bytes_send_fake.arg0_val,
 				     payload.buffer, payload.buffer_len));
 	TEST_ASSERT_EQUAL(payload.buffer_len, nrf_cloud_coap_bytes_send_fake.arg1_val);
+	TEST_ASSERT_FALSE(nrf_cloud_coap_bytes_send_fake.arg2_val);
 }
 
 /* This is required to be added to each test. That is because unity's

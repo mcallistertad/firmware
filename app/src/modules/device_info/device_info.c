@@ -18,7 +18,6 @@
 
 LOG_MODULE_REGISTER(device_info, CONFIG_APP_DEVICE_INFO_LOG_LEVEL);
 
-static bool queued;
 static bool published;
 
 int device_info_publish(void)
@@ -38,7 +37,7 @@ int device_info_publish(void)
 	int64_t timestamp_ms;
 	int err;
 
-	if (published || queued) {
+	if (published) {
 		return 0;
 	}
 
@@ -73,7 +72,6 @@ int device_info_publish(void)
 		return err;
 	}
 
-	queued = true;
 	LOG_INF("Device information payload queued");
 
 	return 0;
@@ -81,11 +79,10 @@ int device_info_publish(void)
 
 void device_info_delivery_status(int err)
 {
-	if (!queued) {
+	if (published) {
 		return;
 	}
 
-	queued = false;
 	if (err) {
 		LOG_WRN("Device information delivery failed: %d", err);
 		return;
