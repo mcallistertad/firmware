@@ -31,7 +31,8 @@ def run_location(t91x_board, hex_file, location_method):
     t91x_board.uart.xfactoryreset()
     patterns_cloud_connection = [
         "Network connectivity established",
-        "Connected to Cloud"
+        "Connected to Cloud",
+        "Device information payload queued"
     ]
 
     patterns_location = ["Wi-Fi and cellular methods combined"] if location_method == "Wi-Fi" else []

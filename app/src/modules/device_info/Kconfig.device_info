@@ -1,0 +1,19 @@
+# Copyright (c) 2026 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menu "Device information"
+	depends on MODEM_INFO
+
+config APP_DEVICE_INFO_BATTERY_MODEL
+	string "Battery model reported to hello.nrfcloud.com"
+	default "LP803448"
+	help
+	  Battery model published in resource 5 of Device Information object 14204.
+
+module = APP_DEVICE_INFO
+module-str = Device information
+source "subsys/logging/Kconfig.template.log_config"
+
+endmenu # Device information

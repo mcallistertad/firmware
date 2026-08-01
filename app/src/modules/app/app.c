@@ -18,6 +18,7 @@
 
 #include "message_channel.h"
 #include "app_object_decode.h"
+#include "device_info.h"
 
 /* Register log module */
 LOG_MODULE_REGISTER(app, CONFIG_APP_LOG_LEVEL);
@@ -236,6 +237,11 @@ static void app_task(void)
 				LOG_DBG("Cloud ready to send");
 
 				shadow_get(false);
+
+				err = device_info_publish();
+				if (err) {
+					LOG_WRN("Failed to publish device information: %d", err);
+				}
 			}
 		}
 
@@ -248,6 +254,11 @@ static void app_task(void)
 				LOG_DBG("Poll trigger received");
 
 				shadow_get(true);
+
+				err = device_info_publish();
+				if (err) {
+					LOG_WRN("Failed to publish device information: %d", err);
+				}
 			}
 		}
 	}

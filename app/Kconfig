@@ -8,7 +8,7 @@ menu "Thingy Out-of-Box Application"
 
 config APP_PAYLOAD_CHANNEL_BUFFER_MAX_SIZE
 	int "Payload maximum buffer size"
-	default 128
+	default 192
 	help
 	  Maximum size of the buffer sent over the payload channel.
 	  Contains encoded CBOR data sampled and encoded in the various modules.
@@ -18,6 +18,7 @@ rsource "src/modules/battery/Kconfig.battery"
 rsource "src/modules/network/Kconfig.network"
 rsource "src/modules/transport/Kconfig.transport"
 rsource "src/modules/location/Kconfig.location"
+rsource "src/modules/device_info/Kconfig.device_info"
 rsource "src/modules/led/Kconfig.led"
 rsource "src/modules/app/Kconfig.app"
 rsource "src/modules/fota/Kconfig.fota"

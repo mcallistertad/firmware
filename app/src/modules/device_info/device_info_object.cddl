@@ -1,0 +1,44 @@
+; SenML-CBOR representation of the Device Information object defined at
+; https://github.com/hello-nrfcloud/proto-map/blob/saga/lwm2m/14204.xml
+; Depends on lwm2m-senml definitions.
+
+imei = {
+	bn => tstr .size 8,                   ; Device Information object/instance path
+	n => "0",                            ; IMEI resource ID
+	vs => tstr,                           ; Modem IMEI
+	bt => 1700000000...3000000000        ; UNIX timestamp in seconds
+}
+
+iccid = {
+	n => "1",                            ; SIM ICCID resource ID
+	vs => tstr
+}
+
+modem-firmware = {
+	n => "2",                            ; Modem firmware version resource ID
+	vs => tstr
+}
+
+application-firmware = {
+	n => "3",                            ; Application firmware version resource ID
+	vs => tstr
+}
+
+board = {
+	n => "4",                            ; Board version resource ID
+	vs => tstr
+}
+
+battery-model = {
+	n => "5",                            ; Battery model resource ID
+	vs => tstr
+}
+
+device-info-object = [
+	imei,
+	iccid,
+	modem-firmware,
+	application-firmware,
+	board,
+	battery-model,
+]
