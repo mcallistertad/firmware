@@ -35,13 +35,15 @@ ZBUS_CHAN_ADD_OBS(FOTA_STATUS_CHAN, trigger, 0);
 /* Forward declarations */
 static void trigger_work_fn(struct k_work *work);
 static void trigger_poll_work_fn(struct k_work *work);
+static void location_block_timeout_work_fn(struct k_work *work);
 static const struct smf_state states[];
 
 /* Delayable work used to schedule triggers for polling and data sampling */
 static K_WORK_DELAYABLE_DEFINE(trigger_work, trigger_work_fn);
 static K_WORK_DELAYABLE_DEFINE(trigger_poll_work, trigger_poll_work_fn);
+static K_WORK_DELAYABLE_DEFINE(location_block_timeout_work, location_block_timeout_work_fn);
 
-/* Timer used to exit the frequent poll state after 10 minutes */
+/* Timer used to exit the frequent poll state after the configured duration. */
 static void frequent_poll_state_duration_timer_handler(struct k_timer * timer_id);
 static K_TIMER_DEFINE(frequent_poll_duration_timer, frequent_poll_state_duration_timer_handler, NULL);
 
@@ -59,14 +61,19 @@ enum state {
 	STATE_FOTA_ONGOING
 };
 
-/* Private channel used to signal when the duration in the frequent poll state expires */
+enum priv_trigger_event {
+	PRIV_TRIGGER_FREQUENT_POLL_EXPIRED,
+	PRIV_TRIGGER_LOCATION_BLOCK_EXPIRED,
+};
+
+/* Private channel used to deliver timer events back into the state machine. */
 ZBUS_CHAN_DECLARE(PRIV_TRIGGER_CHAN);
 ZBUS_CHAN_DEFINE(PRIV_TRIGGER_CHAN,
-		 int, /* Unused */
+		 enum priv_trigger_event,
 		 NULL,
 		 NULL,
 		 ZBUS_OBSERVERS(trigger),
-		 ZBUS_MSG_INIT(0)
+		 PRIV_TRIGGER_FREQUENT_POLL_EXPIRED
 );
 
 /* User defined state object.
@@ -131,16 +138,30 @@ static void frequent_poll_state_duration_timer_handler(struct k_timer * timer_id
 {
 	ARG_UNUSED(timer_id);
 
-	int unused = 0;
+	enum priv_trigger_event event = PRIV_TRIGGER_FREQUENT_POLL_EXPIRED;
 	int err;
 
 	LOG_DBG("Frequent poll duration timer expired");
 
-	err = zbus_chan_pub(&PRIV_TRIGGER_CHAN, &unused, K_SECONDS(1));
+	err = zbus_chan_pub(&PRIV_TRIGGER_CHAN, &event, K_SECONDS(1));
 	if (err) {
 		LOG_ERR("zbus_chan_pub, error: %d", err);
 		SEND_FATAL_ERROR();
 		return;
+	}
+}
+
+static void location_block_timeout_work_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	enum priv_trigger_event event = PRIV_TRIGGER_LOCATION_BLOCK_EXPIRED;
+	int err;
+
+	err = zbus_chan_pub(&PRIV_TRIGGER_CHAN, &event, K_SECONDS(1));
+	if (err) {
+		LOG_ERR("zbus_chan_pub, error: %d", err);
+		SEND_FATAL_ERROR();
 	}
 }
 
@@ -192,7 +213,7 @@ static void frequent_poll_duration_timer_stop(void)
  *
  * STATE_INIT: Initializing module
  * STATE_CONNECTED: Connected to cloud.
- *	- STATE_FREQUENT_POLL: Sending poll and data sample triggers every 20 seconds for 10 minutes
+ *	- STATE_FREQUENT_POLL: Sending poll and data sample triggers at short intervals
  *	- STATE_NORMAL: Sending poll triggers every configured update interval
  *				Sending data sample triggers every configured update interval
  *	- STATE_BLOCKED: Sending of triggers is blocked due to an active location search
@@ -255,6 +276,15 @@ static void connected_run(void *o)
 
 /* STATE_BLOCKED */
 
+static void blocked_entry(void *o)
+{
+	ARG_UNUSED(o);
+
+	LOG_DBG("blocked_entry");
+	k_work_reschedule(&location_block_timeout_work,
+			  K_SECONDS(CONFIG_APP_TRIGGER_LOCATION_BLOCK_TIMEOUT_SECONDS));
+}
+
 static void blocked_run(void *o)
 {
 	struct s_object *user_object = o;
@@ -271,6 +301,23 @@ static void blocked_run(void *o)
 		}
 		return;
 	} else if (user_object->chan == &PRIV_TRIGGER_CHAN) {
+		const enum priv_trigger_event *event = zbus_chan_const_msg(user_object->chan);
+
+		if (*event == PRIV_TRIGGER_LOCATION_BLOCK_EXPIRED) {
+			LOG_WRN("Location search exceeded %d seconds; resuming cloud reporting",
+				CONFIG_APP_TRIGGER_LOCATION_BLOCK_TIMEOUT_SECONDS);
+			user_object->location_search = false;
+			trigger_send(TRIGGER_POLL, K_SECONDS(1));
+			trigger_send(TRIGGER_FOTA_POLL, K_SECONDS(1));
+
+			if (user_object->trigger_mode == TRIGGER_MODE_NORMAL) {
+				smf_set_state(SMF_CTX(&state_object), &states[STATE_NORMAL]);
+			} else {
+				smf_set_state(SMF_CTX(&state_object), &states[STATE_FREQUENT_POLL]);
+			}
+			return;
+		}
+
 		/* Frequent poll duration timer expired. Since the current state is BLOCKED,
 		 * continue to remain in this state but only change the trigger mode so that
 		 * when the location search is done, the state machine transitions into Normal mode.
@@ -294,6 +341,14 @@ static void blocked_run(void *o)
 		LOG_DBG("Message received on channel %s. Ignoring.", zbus_chan_name(user_object->chan));
 		/* Do nothing. Parent state may have handling for this. */
 	}
+}
+
+static void blocked_exit(void *o)
+{
+	ARG_UNUSED(o);
+
+	LOG_DBG("blocked_exit");
+	k_work_cancel_delayable(&location_block_timeout_work);
 }
 
 /* STATE_FREQUENT_POLL */
@@ -540,9 +595,9 @@ static const struct smf_state states[] = {
 		NULL
 	),
 	[STATE_BLOCKED] = SMF_CREATE_STATE(
-		NULL,
+		blocked_entry,
 		blocked_run,
-		NULL,
+		blocked_exit,
 		&states[STATE_CONNECTED],
 		NULL
 	),
@@ -587,7 +642,15 @@ void trigger_callback(const struct zbus_channel *chan)
 		const struct configuration *config = zbus_chan_const_msg(chan);
 
 		if (config->update_interval_present) {
-			state_object.update_interval_configured_sec = config->update_interval;
+			state_object.update_interval_configured_sec =
+				MAX(config->update_interval,
+				    (uint64_t)CONFIG_APP_TRIGGER_MIN_TIMEOUT_SECONDS);
+
+			if (state_object.update_interval_configured_sec != config->update_interval) {
+				LOG_WRN("Requested interval %lld seconds is below the %d-second minimum",
+					config->update_interval,
+					CONFIG_APP_TRIGGER_MIN_TIMEOUT_SECONDS);
+			}
 		}
 	} else if (&CLOUD_CHAN == chan) {
 		const enum cloud_status *status = zbus_chan_const_msg(chan);
@@ -608,8 +671,8 @@ void trigger_callback(const struct zbus_channel *chan)
 
 		LOG_DBG("Location search %s", state_object.location_search ? "started" : "done");
 	} else {
-		/* PRIV_TRIGGER_CHAN event. Frequent Poll Duration timer expired*/
-		LOG_DBG("Message received on PRIV_TRIGGER_CHAN channel.");
+		/* Private timer event; the state handler reads it directly from the channel. */
+		LOG_DBG("Message received on PRIV_TRIGGER_CHAN channel");
 		/* Do nothing to the state object */
 	}
 

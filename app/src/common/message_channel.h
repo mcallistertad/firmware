@@ -36,7 +36,14 @@ extern "C" {
 /** @brief Macro used to handle fatal errors. */
 #define SEND_FATAL_ERROR() FATAL_ERROR_HANDLE(0)
 /** @brief Macro used to handle watchdog timeouts. */
-#define SEND_FATAL_ERROR_WATCHDOG_TIMEOUT() FATAL_ERROR_HANDLE(1)
+#define SEND_FATAL_ERROR_WATCHDOG_TIMEOUT() do { \
+	/* Task watchdog callbacks run from the kernel timer ISR. Do not publish, */ \
+	/* sleep, or assert from that context; reset while the hardware fallback */ \
+	/* remains available if the software reset cannot complete. */ \
+	LOG_PANIC(); \
+	sys_reboot(SYS_REBOOT_COLD); \
+	CODE_UNREACHABLE; \
+} while (0)
 
 #define SEND_IRRECOVERABLE_ERROR() do {					\
 	enum error_type type = ERROR_IRRECOVERABLE;				\

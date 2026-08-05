@@ -246,7 +246,14 @@ void test_frequent_poll_to_blocked(void)
 	send_location_event(LOCATION_SEARCH_STARTED);
 
 	/* Then */
-	check_no_trigger_events(FREQUENT_POLL_TRIGGER_INTERVAL_SEC * 2);
+	check_no_trigger_events(CONFIG_APP_TRIGGER_LOCATION_BLOCK_TIMEOUT_SECONDS - 10);
+	k_sleep(K_SECONDS(10));
+	check_trigger_event(TRIGGER_POLL);
+	check_trigger_event(TRIGGER_FOTA_POLL);
+	check_trigger_mode_event(TRIGGER_MODE_POLL);
+	check_trigger_event(TRIGGER_DATA_SAMPLE);
+	check_trigger_event(TRIGGER_POLL);
+	check_trigger_event(TRIGGER_FOTA_POLL);
 
 	/* Cleanup */
 	send_cloud_disconnected();
@@ -261,7 +268,12 @@ void test_normal_to_blocked(void)
 	send_location_event(LOCATION_SEARCH_STARTED);
 
 	/* Then */
-	check_no_trigger_events(CONFIG_APP_TRIGGER_TIMEOUT_SECONDS * 2);
+	check_no_trigger_events(CONFIG_APP_TRIGGER_LOCATION_BLOCK_TIMEOUT_SECONDS - 10);
+	k_sleep(K_SECONDS(10));
+	check_trigger_event(TRIGGER_POLL);
+	check_trigger_event(TRIGGER_FOTA_POLL);
+	check_trigger_mode_event(TRIGGER_MODE_NORMAL);
+	check_no_trigger_events(CONFIG_APP_TRIGGER_TIMEOUT_SECONDS - 10);
 
 	/* Cleanup */
 	send_cloud_disconnected();

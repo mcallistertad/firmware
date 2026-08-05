@@ -5,6 +5,8 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/zbus/zbus.h>
 #include <zephyr/task_wdt/task_wdt.h>
@@ -280,7 +282,16 @@ K_THREAD_DEFINE(app_task_id,
 
 static int watchdog_init(void)
 {
-	__ASSERT((task_wdt_init(NULL) == 0), "Task watchdog init failure");
+	const struct device *hardware_watchdog = NULL;
+
+#if defined(CONFIG_TASK_WDT_HW_FALLBACK) && DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_wdt)
+	hardware_watchdog = DEVICE_DT_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_wdt));
+	if (!device_is_ready(hardware_watchdog)) {
+		return -ENODEV;
+	}
+#endif
+
+	__ASSERT((task_wdt_init(hardware_watchdog) == 0), "Task watchdog init failure");
 
 	return 0;
 }

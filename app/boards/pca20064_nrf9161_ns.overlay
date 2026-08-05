@@ -24,6 +24,11 @@
 	charging-enable;
 };
 
+/* Status indication is disabled in the PCA20064 low-power profile. */
+&pwm0 {
+	status = "disabled";
+};
+
 &ldsw_npm6001_en {
 	/delete-property/ regulator-boot-off;
 	regulator-boot-on;
