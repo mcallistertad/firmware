@@ -24,9 +24,9 @@
 	charging-enable;
 };
 
-/* Status indication is disabled in the PCA20064 low-power profile. */
+/* Enable the RGB status indicator for the PCA20064 application profile. */
 &pwm0 {
-	status = "disabled";
+	status = "okay";
 };
 
 &ldsw_npm6001_en {
