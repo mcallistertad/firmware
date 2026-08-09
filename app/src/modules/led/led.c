@@ -53,6 +53,8 @@ static const struct smf_state states[];
 
 /* Definition used to specify LED patterns that should hold forever. */
 #define HOLD_FOREVER -1
+/* Keep the poll acknowledgement visible before location green replaces it. */
+#define POLL_ACK_DURATION_SEC 1
 
 /* List of LED patterns supported in the UI module. */
 static struct led_pattern {
@@ -161,6 +163,17 @@ static void transition_list_append(enum led_state led_state, int16_t duration_se
 	}
 
 	sys_slist_append(&pattern_transition_list, &led_pattern_list[led_state].header);
+}
+
+static void location_search_pattern_set(bool show_poll_ack)
+{
+	transition_list_clear();
+	if (show_poll_ack) {
+		transition_list_append(LED_POLL_MODE, POLL_ACK_DURATION_SEC, 0, 0, 0);
+	}
+	transition_list_append(LED_LOCATION_SEARCHING, HOLD_FOREVER, 0, 0, 0);
+
+	k_work_reschedule(&led_pattern_update_work, K_NO_WAIT);
 }
 
 static void led_pattern_update_work_fn(struct k_work *work)
@@ -371,11 +384,7 @@ static void poll_running(void *o)
 	}
 
 	if ((&LOCATION_CHAN == user_object->chan) && user_object->location_status == LOCATION_SEARCH_STARTED) {
-
-		transition_list_clear();
-		transition_list_append(LED_LOCATION_SEARCHING, HOLD_FOREVER, 0, 0, 0);
-
-		k_work_reschedule(&led_pattern_update_work, K_NO_WAIT);
+		location_search_pattern_set(true);
 		return;
 	}
 
@@ -412,11 +421,7 @@ static void normal_running(void *o)
 	}
 
 	if ((&LOCATION_CHAN == user_object->chan) && user_object->location_status == LOCATION_SEARCH_STARTED) {
-
-		transition_list_clear();
-		transition_list_append(LED_LOCATION_SEARCHING, HOLD_FOREVER, 0, 0, 0);
-
-		k_work_reschedule(&led_pattern_update_work, K_NO_WAIT);
+		location_search_pattern_set(false);
 		return;
 	}
 

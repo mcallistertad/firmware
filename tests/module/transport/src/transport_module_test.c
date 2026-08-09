@@ -8,6 +8,7 @@
 #include <zephyr/fff.h>
 #include "cloud_send.h"
 #include "message_channel.h"
+#include "transport.h"
 #include <zephyr/task_wdt/task_wdt.h>
 
 DEFINE_FFF_GLOBALS;
@@ -89,6 +90,7 @@ void setUp(void)
 	RESET_FAKE(task_wdt_feed);
 	RESET_FAKE(task_wdt_add);
 	RESET_FAKE(nrf_cloud_coap_connect);
+	RESET_FAKE(nrf_cloud_coap_disconnect);
 	RESET_FAKE(transport_cloud_bytes_send);
 	k_sem_reset(&payload_status_received);
 
@@ -132,6 +134,32 @@ void test_transition_disconnected_connected_ready(void)
 
 	err = k_sem_take(&cloud_connected_ready, K_SECONDS(1));
 	TEST_ASSERT_EQUAL(0, err);
+}
+
+void test_explicit_reconnect_request_cycles_cloud_session(void)
+{
+	int err;
+
+	transport_cloud_reconnect_request(-ETIMEDOUT);
+
+	err = k_sem_take(&cloud_disconnected, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	err = k_sem_take(&cloud_connected_ready, K_SECONDS(1));
+	TEST_ASSERT_EQUAL(0, err);
+	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_disconnect_fake.call_count);
+	TEST_ASSERT_EQUAL(1, nrf_cloud_coap_connect_fake.call_count);
+}
+
+void test_reconnect_error_classification(void)
+{
+	TEST_ASSERT_TRUE(transport_cloud_error_requires_reconnect(-EACCES));
+	TEST_ASSERT_TRUE(transport_cloud_error_requires_reconnect(-ECONNRESET));
+	TEST_ASSERT_TRUE(transport_cloud_error_requires_reconnect(-ESHUTDOWN));
+	TEST_ASSERT_TRUE(transport_cloud_error_requires_reconnect(-ETIMEDOUT));
+	TEST_ASSERT_TRUE(transport_cloud_error_requires_reconnect(-EIO));
+	TEST_ASSERT_TRUE(transport_cloud_error_requires_reconnect(-EPROTO));
+	TEST_ASSERT_FALSE(transport_cloud_error_requires_reconnect(-EAGAIN));
+	TEST_ASSERT_FALSE(transport_cloud_error_requires_reconnect(0));
 }
 
 void test_sending_payload(void)

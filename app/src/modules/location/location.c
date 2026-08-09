@@ -17,6 +17,7 @@
 #include "message_channel.h"
 #include "location_payload.h"
 #include "modem/lte_lc.h"
+#include "transport.h"
 
 #include <net/nrf_cloud.h>
 
@@ -301,6 +302,11 @@ static void location_event_handler(const struct location_event_data *event_data)
 		break;
 	case LOCATION_EVT_TIMEOUT:
 		LOG_DBG("Getting location timed out");
+		if (event_data->method == LOCATION_METHOD_WIFI ||
+		    event_data->method == LOCATION_METHOD_CELLULAR ||
+		    event_data->method == LOCATION_METHOD_WIFI_CELLULAR) {
+			transport_cloud_reconnect_request(-ETIMEDOUT);
+		}
 		status_send(LOCATION_SEARCH_DONE);
 		break;
 	case LOCATION_EVT_ERROR:

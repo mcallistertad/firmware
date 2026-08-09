@@ -19,6 +19,7 @@
 
 #include "message_channel.h"
 #include "modules_common.h"
+#include "transport.h"
 
 /* Register log module */
 LOG_MODULE_REGISTER(fota, CONFIG_APP_FOTA_LOG_LEVEL);
@@ -196,8 +197,11 @@ static void state_poll_and_process_entry(void *o)
 	if (err) {
 		enum priv_fota_evt evt = FOTA_PRIV_PROCESSING_DONE;
 
-		if (err != -EAGAIN) {
+		if (err == -EAGAIN) {
 			LOG_DBG("No job available");
+		} else {
+			LOG_WRN("FOTA poll failed: %d", err);
+			transport_cloud_reconnect_request(err);
 		}
 
 		err = zbus_chan_pub(&PRIV_FOTA_CHAN, &evt, K_SECONDS(1));

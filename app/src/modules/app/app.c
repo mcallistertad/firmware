@@ -21,6 +21,7 @@
 #include "message_channel.h"
 #include "app_object_decode.h"
 #include "device_info.h"
+#include "transport.h"
 
 /* Register log module */
 LOG_MODULE_REGISTER(app, CONFIG_APP_LOG_LEVEL);
@@ -54,9 +55,11 @@ static void shadow_get(bool delta_only)
 					COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err == -EACCES) {
 		LOG_WRN("Not connected, error: %d", err);
+		transport_cloud_reconnect_request(err);
 		return;
 	} else if (err == -ETIMEDOUT) {
 		LOG_WRN("Request timed out, error: %d", err);
+		transport_cloud_reconnect_request(err);
 		return;
 	} else if (err > 0) {
 		LOG_WRN("Cloud error: %d", err);
@@ -67,6 +70,9 @@ static void shadow_get(bool delta_only)
 		return;
 	} else if (err) {
 		LOG_ERR("Failed to request shadow delta: %d", err);
+		if (transport_cloud_error_requires_reconnect(err)) {
+			transport_cloud_reconnect_request(err);
+		}
 		return;
 	}
 
@@ -172,6 +178,9 @@ static void shadow_get(bool delta_only)
 				   buf_cbor_len, COAP_CONTENT_FORMAT_APP_CBOR, true, NULL, NULL);
 	if (err < 0) {
 		LOG_ERR("Failed to send PATCH request: %d", err);
+		if (transport_cloud_error_requires_reconnect(err)) {
+			transport_cloud_reconnect_request(err);
+		}
 	} else if (err > 0) {
 		LOG_ERR("Error from server: %d", err);
 	}

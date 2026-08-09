@@ -8,6 +8,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/zbus/zbus.h>
 #include <zephyr/smf.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/task_wdt/task_wdt.h>
 #include <net/nrf_cloud.h>
 #include <net/nrf_cloud_coap.h>
@@ -16,6 +17,7 @@
 #include "cloud_send.h"
 #include "modules_common.h"
 #include "message_channel.h"
+#include "transport.h"
 
 /* Register log module */
 LOG_MODULE_REGISTER(transport, CONFIG_APP_TRANSPORT_LOG_LEVEL);
@@ -34,7 +36,7 @@ ZBUS_CHAN_ADD_OBS(NETWORK_CHAN, transport, 0);
 
 #define MAX_MSG_SIZE (MAX(sizeof(struct payload), sizeof(enum network_status)))
 
-static bool send_error_requires_reconnect(int err)
+bool transport_cloud_error_requires_reconnect(int err)
 {
 	switch (err) {
 	case -EACCES:
@@ -64,6 +66,29 @@ ZBUS_CHAN_DEFINE(PRIV_TRANSPORT_CHAN,
 		 ZBUS_OBSERVERS(transport),
 		 IRRECOVERABLE_ERROR
 );
+
+static atomic_t reconnect_pending = ATOMIC_INIT(0);
+
+void transport_cloud_reconnect_request(int reason)
+{
+	enum priv_transport_evt event = CLOUD_CONN_RETRY;
+	int err;
+
+	/* Several cloud users can observe the same failed session at once. Only one
+	 * reconnect event is needed; the flag is cleared after the new session is ready.
+	 */
+	if (!atomic_cas(&reconnect_pending, 0, 1)) {
+		LOG_DBG("Cloud reconnect already pending (latest reason: %d)", reason);
+		return;
+	}
+
+	LOG_WRN("Cloud reconnect requested after error: %d", reason);
+	err = zbus_chan_pub(&PRIV_TRANSPORT_CHAN, &event, K_SECONDS(1));
+	if (err) {
+		atomic_clear(&reconnect_pending);
+		LOG_ERR("Failed to request cloud reconnect: %d", err);
+	}
+}
 
 /* Forward declarations */
 static const struct smf_state states[];
@@ -375,6 +400,7 @@ static void state_connected_entry(void *o)
 static void state_connected_exit(void *o)
 {
 	int err;
+	enum cloud_status cloud_status = CLOUD_DISCONNECTED;
 
 	ARG_UNUSED(o);
 
@@ -383,6 +409,15 @@ static void state_connected_exit(void *o)
 	err = nrf_cloud_coap_disconnect();
 	if (err && (err != -ENOTCONN)) {
 		LOG_ERR("nrf_cloud_coap_disconnect, error: %d", err);
+		SEND_FATAL_ERROR();
+	}
+
+	/* Make the temporary outage visible to trigger producers. This cancels the
+	 * current report cycle; CLOUD_CONNECTED_READY_TO_SEND starts one fresh cycle.
+	 */
+	err = zbus_chan_pub(&CLOUD_CHAN, &cloud_status, K_SECONDS(1));
+	if (err) {
+		LOG_ERR("zbus_chan_pub, error: %d", err);
 		SEND_FATAL_ERROR();
 	}
 
@@ -399,6 +434,7 @@ static void state_connected_ready_entry(void *o)
 	ARG_UNUSED(o);
 
 	LOG_DBG("%s", __func__);
+	atomic_clear(&reconnect_pending);
 
 	err = zbus_chan_pub(&CLOUD_CHAN, &cloud_status, K_SECONDS(1));
 	if (err) {
@@ -450,18 +486,11 @@ static void state_connected_ready_run(void *o)
 		err = transport_cloud_bytes_send(payload->buffer, payload->buffer_len,
 						 payload->object_id != 0);
 		payload_status_publish(payload, err);
-		if (send_error_requires_reconnect(err)) {
+		if (transport_cloud_error_requires_reconnect(err)) {
 
 			/* The connection is not usable; establish a fresh cloud session. */
 
-			enum priv_transport_evt conn_result = CLOUD_CONN_RETRY;
-
-			err = zbus_chan_pub(&PRIV_TRANSPORT_CHAN, &conn_result, K_SECONDS(1));
-			if (err) {
-				LOG_ERR("zbus_chan_pub, error: %d", err);
-				SEND_FATAL_ERROR();
-				return;
-			}
+			transport_cloud_reconnect_request(err);
 
 		} else if (err) {
 			LOG_ERR("nrf_cloud_coap_bytes_send, error: %d", err);
